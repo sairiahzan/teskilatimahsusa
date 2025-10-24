@@ -11,7 +11,7 @@ def build_miftah(root):
     m = tk.Frame(root.content, bg=root.bg)
     root.screens['miftah'] = m
 
-    root._btn(m, "← Ana Menü", lambda: root.show('home')).pack(anchor='e', padx=8, pady=8)
+    root._btn(m, "← Ana Menü", lambda: root.show('home'), instant=True).pack(anchor='e', padx=8, pady=8)
     tk.Label(m, text="Miftah Defteri", bg=root.bg, fg=root.ink,
              font=('Helvetica', 18, 'bold')).pack(anchor='w', padx=8, pady=(0, 6))
 
