@@ -4,6 +4,7 @@
 import os, shutil
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from threading import Thread
 from ..io_helpers import read_text_from_path, write_text_same_type
 from .. import ciphers as C
 from ..codebook import codebook_encode, codebook_decode
@@ -19,7 +20,7 @@ def build_bulk(root):
     b = tk.Frame(root.content, bg=root.bg)
     root.screens['bulk'] = b
 
-    root._btn(b, "← Ana Menü", lambda: root.show('home')).pack(anchor='e', padx=8, pady=8)
+    root._btn(b, "← Ana Menü", lambda: root.show('home'), instant=True).pack(anchor='e', padx=8, pady=8)
     tk.Label(b, text="Toplu İşlem", bg=root.bg, fg=root.ink,
              font=('Helvetica', 18, 'bold')).pack(anchor='w', padx=8, pady=(0, 6))
 
@@ -44,6 +45,9 @@ def build_bulk(root):
 
     # alt satır – çıkış klasörü, yöntem ve parametreler
     bottom = tk.Frame(b, bg=root.bg); bottom.pack(fill='x', padx=8, pady=8)
+    # durum metni – ilerlemeyi göster
+    root.bulk_status = tk.StringVar(value="")
+    tk.Label(b, textvariable=root.bulk_status, bg=root.bg, fg=root.ink).pack(anchor='w', padx=12, pady=(0,4))
 
     out_row = tk.Frame(bottom, bg=root.bg); out_row.pack(fill='x')
     tk.Label(out_row, text="Çıkış Klasörü:", bg=root.bg, fg=root.ink).pack(side='left', padx=(0,8))
@@ -64,8 +68,9 @@ def build_bulk(root):
     root.bulk_params = tk.Frame(bottom, bg=root.bg); root.bulk_params.pack(fill='x', pady=(6,0))
     _bulk_bind_params(root)
 
-    ttk.Button(bottom, text="Başlat", style="Mahsusa.TButton",
-               command=lambda: _bulk_start(root)).pack(anchor='e', pady=(8,0))
+    root.bulk_start_btn = ttk.Button(bottom, text="Başlat", style="Mahsusa.TButton",
+                                     command=lambda: _bulk_start(root))
+    root.bulk_start_btn.pack(anchor='e', pady=(8,0))
 
 # dosya seçimleri
 def _bulk_add_files(root):
@@ -194,35 +199,54 @@ def _bulk_start(root):
         messagebox.showwarning(root.APP_NAME, "Çıkış klasörü seçilmedi.")
         return
 
-    ok = fail = skipped = 0
-    for i in range(n):
-        src = root.bulk_list.get(i)
-        try:
-            if not os.path.isfile(src):
-                raise FileNotFoundError(src)
+    # UI: kilitle ve durum göster
+    if hasattr(root, 'bulk_start_btn'):
+        root.bulk_start_btn.config(state='disabled')
+    root.bulk_status.set("Çalışıyor…")
+    root.config(cursor='watch'); root.update_idletasks()
 
-            base = os.path.basename(src)
-            name, ext = os.path.splitext(base)
-            ext_l = ext.lower()
-            dest = os.path.join(outdir, f"{name}_proc{ext}")
+    def run():
+        ok = fail = skipped = 0
+        n_local = n
+        for i in range(n_local):
+            src = root.bulk_list.get(i)
+            try:
+                if not os.path.isfile(src):
+                    raise FileNotFoundError(src)
 
-            text = read_text_from_path(src)
+                base = os.path.basename(src)
+                name, ext = os.path.splitext(base)
+                ext_l = ext.lower()
+                dest = os.path.join(outdir, f"{name}_proc{ext}")
 
-            # metin çıkaramıyorsak atlama stratejisi (korumalı/resim tabanlı PDF söz konusu)
-            if text is None or (ext_l in ('.pdf', '.doc', '.docx') and (not isinstance(text, str) or not text.strip())):
-                try:
-                    shutil.copy2(src, dest)
-                    skipped += 1
-                    continue
-                except Exception:
-                    fail += 1
-                    continue
+                text = read_text_from_path(src)
 
-            out_text = _bulk_transform_text(root, text)
-            _final, _fallback = write_text_same_type(dest, out_text)
-            ok += 1
-        except Exception:
-            fail += 1
+                if text is None or (ext_l in ('.pdf', '.doc', '.docx') and (not isinstance(text, str) or not text.strip())):
+                    try:
+                        shutil.copy2(src, dest)
+                        skipped += 1
+                        root.after(0, lambda i=i, n=n_local: root.bulk_status.set(f"{i+1}/{n} dosya işlendi (kopyalandı)…"))
+                        continue
+                    except Exception:
+                        fail += 1
+                        root.after(0, lambda i=i, n=n_local: root.bulk_status.set(f"{i+1}/{n} dosya işlendi (hata)…"))
+                        continue
 
-    msg = f"Tamamlandı. Başarılı: {ok}, Atlanan: {skipped}, Hatalı: {fail}\n(Metin çıkarılamayan PDF/DOCX dosyaları kopyalandı.)"
-    messagebox.showinfo(root.APP_NAME, msg)
+                out_text = _bulk_transform_text(root, text)
+                _final, _fallback = write_text_same_type(dest, out_text)
+                ok += 1
+                root.after(0, lambda i=i, n=n_local: root.bulk_status.set(f"{i+1}/{n} dosya işlendi…"))
+            except Exception:
+                fail += 1
+                root.after(0, lambda i=i, n=n_local: root.bulk_status.set(f"{i+1}/{n} dosya işlendi (hata)…"))
+
+        def finish():
+            if hasattr(root, 'bulk_start_btn'):
+                root.bulk_start_btn.config(state='normal')
+            root.config(cursor='')
+            msg = f"Tamamlandı. Başarılı: {ok}, Atlanan: {skipped}, Hatalı: {fail}\n(Metin çıkarılamayan PDF/DOCX dosyaları kopyalandı.)"
+            root.bulk_status.set("")
+            messagebox.showinfo(root.APP_NAME, msg)
+        root.after(0, finish)
+
+    Thread(target=run, daemon=True).start()
