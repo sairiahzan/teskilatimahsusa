@@ -1,5 +1,4 @@
-# Ana Penere ve Ekran Geçişi
-# UTF-8 Kodlama
+from threading import Thread
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -32,6 +31,7 @@ class App(tk.Tk):
 
         # ------------------ ÇERÇEVELER ------------------
         self.screens = {}
+        self.current_screen = None
         self._build_header()   # ← ÜST BAR: Logo solda, başlık ortada
         self._build_footer()   # ← ALT BAR: “Arda Yiğit - Hazani” ortada
         self._build_content()  # ← İçerik alanı
@@ -120,17 +120,34 @@ class App(tk.Tk):
         f.pack_propagate(False)
         return f
 
-    def _btn(self, parent, text, cmd):
-        return ttk.Button(parent, text=text, command=cmd, style="Mahsusa.TButton")
+    def _btn(self, parent, text, cmd, instant=None):
+        # Navigasyonlar anlık, ağır işler kuyruktan
+        if instant is None:
+            # metne göre sezgisel: geri/ana menü tuşlarını anında çalıştır
+            instant = bool(text and ("Ana Menü" in text or text.strip().startswith("←")))
+        if instant:
+            return ttk.Button(parent, text=text, command=cmd, style="Mahsusa.TButton")
+
+        def on_click():
+            btn.config(state='disabled')
+            # UI'ı kilitlemeden işi sıraya koy
+            self.after_idle(lambda: (cmd(), btn.config(state='normal')))
+        btn = ttk.Button(parent, text=text, command=on_click, style="Mahsusa.TButton")
+        return btn
 
     # ============================================================
     #  SAYFA GEÇİŞİ
     # ============================================================
     def show(self, name):
-        for child in self.content.winfo_children():
-            child.pack_forget()
+        # hızlı ekran değişimi: sadece aktif ekranı gizle/göster
+        if getattr(self, 'current_screen', None) == name:
+            return
+        if getattr(self, 'current_screen', None) in self.screens:
+            self.screens[self.current_screen].pack_forget()
         if name in self.screens:
             self.screens[name].pack(expand=True, fill="both")
+            self.current_screen = name
+            self.update_idletasks()
 
     # ============================================================
     #  ŞİFRELEME EKRANLARINI TANIMLAMA
